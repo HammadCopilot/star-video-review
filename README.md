@@ -318,44 +318,8 @@ Proprietary - STAR Program
 
 Built for the STAR program to improve teacher training and coaching effectiveness through AI-powered video analysis.
 
----
-
-**Status:** Phase 1 Complete | Phase 2 In Progress  
-**Target Delivery:** December 2025  
-**Version:** 1.0.0-alpha
 
 Test Accounts:
   Admin: admin@star.com / admin123
   Reviewer: reviewer@star.com / reviewer123
-
-
-1. user management 
-2. export options (pdf/docx)
-3. validation by admin
-4. Manual annotations 
-
-📊 What is Coverage?
-Coverage measures how many of the relevant best practices for the video's category were identified in the analysis.
-📐 How It's Calculated:
-For your video:
-Category: discrete_trial
-Total best practices in this category: 13
-Annotations with matched practices: 15
-Coverage: 115.38%
-🤔 Wait... 115%? Over 100%?
-Yes! Here's why:
-The current logic counts every annotation that has a matched practice, including duplicates.
-Example:
-"Consistent Cue Usage" identified 3 times → counts as 3
-"Poor Positioning" identified 2 times → counts as 2
-Total = 15 practice instances / 13 unique practices = 115%
-🔧 Should We Fix This?
-Option A: Keep as-is (Current)
-Shows total practice instances
-Can exceed 100%
-Shows frequency of practice use
-Option B: Count unique practices only
-Max coverage = 100%
-Shows variety of practices
-More intuitive metric
-Which would you prefer? I can update it to count unique practices only (Option B) so it never exceeds 100%. That would make it clearer as a "completeness" metric!
+  
