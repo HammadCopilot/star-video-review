@@ -1,6 +1,6 @@
 # Multi-stage build for STAR Video Review App
 # Stage 1: Build React Frontend
-FROM node:18-alpine AS frontend-builder
+FROM node:20-alpine AS frontend-builder
 
 WORKDIR /app/frontend
 
@@ -8,12 +8,14 @@ WORKDIR /app/frontend
 COPY frontend/package*.json ./
 
 # Install dependencies
-RUN npm ci
+RUN npm install --legacy-peer-deps
 
 # Copy frontend source
 COPY frontend/ ./
 
 # Build React app for production
+ARG REACT_APP_API_URL
+ENV REACT_APP_API_URL=${REACT_APP_API_URL:-/api}
 RUN npm run build
 
 # Stage 2: Python Backend with Frontend
@@ -21,31 +23,64 @@ FROM python:3.10-slim-bookworm
 
 WORKDIR /app
 
-# Install system dependencies for opencv, ffmpeg, and other packages
+# Install system dependencies
 RUN apt-get update && apt-get install -y \
-    curl \
-    unzip \
     ffmpeg \
     libgl1-mesa-glx \
     libglib2.0-0 \
-    libcairo2-dev \
-    pkg-config \
     python3-dev \
     build-essential \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 
+# Upgrade pip first
+RUN pip install --no-cache-dir --upgrade pip setuptools wheel
+
 # Copy requirements file
 COPY backend/requirements.txt .
 
-# Configure pip
-RUN pip config set global.timeout 100 && \
+# Configure pip with much longer timeout for large downloads (PyTorch is ~900MB)
+RUN pip config set global.timeout 600 && \
     pip config set global.index-url https://pypi.org/simple/
 
-# Install Python dependencies (handle numpy/opencv conflicts)
-RUN pip uninstall -y numpy opencv-python || true && \
-    pip install --no-cache-dir --upgrade \
+# Install dependencies in stages for better caching and reliability
+# Stage 1: Lightweight dependencies first
+RUN pip install --no-cache-dir --timeout 600 \
     gunicorn==21.2.0 \
-    -r requirements.txt
+    Flask==3.1.2 \
+    Flask-SQLAlchemy==3.0.5 \
+    Flask-JWT-Extended==4.6.0 \
+    Flask-CORS==4.0.0 \
+    python-dotenv==1.0.0 \
+    bcrypt==4.1.2 \
+    "Werkzeug>=3.1.0" \
+    requests==2.31.0 \
+    urllib3==2.1.0 \
+    python-dateutil==2.8.2
+
+# Stage 2: Image processing libraries
+RUN pip install --no-cache-dir --timeout 600 \
+    Pillow==10.2.0 \
+    "numpy>=2,<2.3.0" \
+    opencv-python==4.12.0.88
+
+# Stage 3: Video processing (requires ffmpeg)
+RUN pip install --no-cache-dir --timeout 600 \
+    moviepy==2.0.0.dev2 \
+    ffmpeg-python==0.2.0
+
+# Stage 4: OpenAI client (lightweight)
+RUN pip install --no-cache-dir --timeout 600 \
+    openai==1.59.6
+
+# Stage 5: PyTorch and Whisper (heavy downloads - install with retry)
+# PyTorch is ~900MB, so we install it separately with more time
+RUN pip install --no-cache-dir --timeout 1200 torch || \
+    (sleep 10 && pip install --no-cache-dir --timeout 1200 torch) || \
+    (sleep 10 && pip install --no-cache-dir --timeout 1200 torch)
+
+# Stage 6: Whisper (depends on torch)
+RUN pip install --no-cache-dir --timeout 600 \
+    openai-whisper==20240930
 
 # Copy backend application code
 COPY backend/ ./backend/
@@ -69,30 +104,5 @@ ENV PORT=8081
 # Expose port
 EXPOSE 8081
 
-# Create entrypoint script to serve static files
-RUN echo '#!/bin/bash\n\
-from flask import Flask, send_from_directory\n\
-import os\n\
-\n\
-app = None\n\
-\n\
-def setup_static_serving(flask_app):\n\
-    """Setup Flask to serve React static files"""\n\
-    frontend_build = "/app/frontend/build"\n\
-    \n\
-    @flask_app.route("/", defaults={"path": ""})\n\
-    @flask_app.route("/<path:path>")\n\
-    def serve(path):\n\
-        if path.startswith("api/") or path == "health":\n\
-            # Let Flask handle API routes\n\
-            pass\n\
-        elif path != "" and os.path.exists(os.path.join(frontend_build, path)):\n\
-            return send_from_directory(frontend_build, path)\n\
-        else:\n\
-            return send_from_directory(frontend_build, "index.html")\n\
-    \n\
-    return flask_app\n\
-' > /app/setup_static.py
-
 # Run with gunicorn
-CMD ["gunicorn", "--bind", "0.0.0.0:8081", "--workers", "2", "--timeout", "300", "--log-level", "info", "app:create_app()"]
+CMD ["gunicorn", "--bind", "0.0.0.0:8081", "--workers", "2", "--timeout", "300", "--log-level", "info", "--pythonpath", "/app/backend", "app:create_app('production')"]

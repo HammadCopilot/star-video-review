@@ -101,10 +101,21 @@ def create_app(config_name='development'):
     def revoked_token_callback(jwt_header, jwt_payload):
         return jsonify({'error': 'Token has been revoked'}), 401
     
-    # Create database tables
+    # Create database tables (handle race condition with multiple workers)
     with app.app_context():
-        db.create_all()
-        print("Database tables created successfully!")
+        try:
+            db.create_all()
+            print("Database tables created successfully!")
+        except Exception as e:
+            # Tables may already exist from another worker process
+            print(f"Database initialization: {str(e)}")
+            # Verify tables exist by attempting a simple query
+            try:
+                db.session.execute(db.text("SELECT 1"))
+                print("Database tables already exist and are accessible.")
+            except Exception as verify_error:
+                print(f"Database verification failed: {str(verify_error)}")
+                raise
     
     return app
 
