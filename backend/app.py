@@ -7,7 +7,10 @@ import os
 
 def create_app(config_name='development'):
     """Application factory"""
-    app = Flask(__name__)
+    # Disable Flask's default static file handling so we can serve the React build ourselves.
+    # The default static handler responds to /static/* before our catch-all route, which caused
+    # 404s because the static files live in ../frontend/build/static rather than backend/static.
+    app = Flask(__name__, static_folder=None)
     
     # Load configuration
     app.config.from_object(config[config_name])
@@ -56,20 +59,20 @@ def create_app(config_name='development'):
                     'health': '/health'
                 }
             }), 200
-    
+
     # Serve React frontend in production (must be last route)
     if config_name == 'production':
-        from flask import send_from_directory
+        from flask import send_from_directory, make_response
         import os
-        
+
         frontend_build_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'frontend', 'build')
-        
+
         # Debug: Print frontend build path and verify it exists
         print(f"Frontend build path: {frontend_build_path}")
         print(f"Frontend build exists: {os.path.exists(frontend_build_path)}")
         if os.path.exists(frontend_build_path):
             print(f"Frontend build contents: {os.listdir(frontend_build_path)}")
-        
+
         @app.route('/', defaults={'path': ''})
         @app.route('/<path:path>')
         def serve_frontend(path):
@@ -77,14 +80,44 @@ def create_app(config_name='development'):
             if path.startswith('api/') or path.startswith('health'):
                 # Return 404 if this route is reached (blueprint should handle it)
                 return jsonify({'error': 'Not found'}), 404
+
+            # If path is empty, serve index.html
+            if path == '':
+                response = make_response(send_from_directory(frontend_build_path, 'index.html'))
+                response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+                response.headers['Pragma'] = 'no-cache'
+                response.headers['Expires'] = '0'
+                return response
+
+            # Check if the requested file exists
+            full_path = os.path.join(frontend_build_path, path)
+            file_exists = os.path.exists(full_path) and os.path.isfile(full_path)
             
-            # Try to serve static file if it exists
-            file_path = os.path.join(frontend_build_path, path)
-            if path != '' and os.path.exists(file_path) and os.path.isfile(file_path):
-                return send_from_directory(frontend_build_path, path)
+            if file_exists:
+                # Serve static assets (JS, CSS, images, etc.) - these have content hashes so can be cached
+                # The random characters (e.g., main.fa9bb86b.js) are content hashes for cache busting
+                try:
+                    response = make_response(send_from_directory(frontend_build_path, path))
+                    # Cache static assets for 1 year since they have content hashes
+                    response.headers['Cache-Control'] = 'public, max-age=31536000, immutable'
+                    return response
+                except Exception as e:
+                    print(f"ERROR: Failed to serve file '{path}': {e}")
+                    print(f"  Frontend build path: {frontend_build_path}")
+                    print(f"  Requested path: {path}")
+                    print(f"  Full path: {full_path}")
+                    print(f"  File exists: {file_exists}")
+                    # Fall through to serve index.html
             
-            # Otherwise serve index.html for client-side routing
-            return send_from_directory(frontend_build_path, 'index.html')
+            # File doesn't exist - serve index.html for client-side routing
+            # This handles cases like:
+            # - Old build artifacts referenced in cached HTML (browser requesting old hash filenames)
+            # - Client-side routes that need to be handled by React Router
+            response = make_response(send_from_directory(frontend_build_path, 'index.html'))
+            response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+            response.headers['Pragma'] = 'no-cache'
+            response.headers['Expires'] = '0'
+            return response
     
     # Error handlers
     @app.errorhandler(404)
@@ -116,8 +149,8 @@ def create_app(config_name='development'):
     # Create database tables (handle race condition with multiple workers)
     with app.app_context():
         try:
-            db.create_all()
-            print("Database tables created successfully!")
+          db.create_all()
+          print("Database tables created successfully!")
         except Exception as e:
             # Tables may already exist from another worker process
             print(f"Database initialization: {str(e)}")
