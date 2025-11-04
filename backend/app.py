@@ -33,46 +33,58 @@ def create_app(config_name='development'):
     app.register_blueprint(ai_bp)
     app.register_blueprint(reports_bp)
 
-    # Serve React frontend in production
+    # Health check endpoint (define before catch-all route)
+    @app.route('/health', methods=['GET'])
+    def health_check():
+        return jsonify({'status': 'healthy', 'message': 'STAR Video Review API'}), 200
+    
+    # API info endpoint (only for development)
+    if config_name != 'production':
+        @app.route('/', methods=['GET'])
+        def root():
+            return jsonify({
+                'message': 'STAR Video Review API',
+                'version': '2.0.0',
+                'phase': 'Phase 2 - AI Integration',
+                'endpoints': {
+                    'auth': '/api/auth',
+                    'videos': '/api/videos',
+                    'annotations': '/api/annotations',
+                    'practices': '/api/practices',
+                    'ai_analysis': '/api/ai',
+                    'reports': '/api/reports',
+                    'health': '/health'
+                }
+            }), 200
+    
+    # Serve React frontend in production (must be last route)
     if config_name == 'production':
         from flask import send_from_directory
         import os
         
         frontend_build_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'frontend', 'build')
         
+        # Debug: Print frontend build path and verify it exists
+        print(f"Frontend build path: {frontend_build_path}")
+        print(f"Frontend build exists: {os.path.exists(frontend_build_path)}")
+        if os.path.exists(frontend_build_path):
+            print(f"Frontend build contents: {os.listdir(frontend_build_path)}")
+        
         @app.route('/', defaults={'path': ''})
         @app.route('/<path:path>')
         def serve_frontend(path):
-            if path.startswith('api/') or path == 'health':
-                # API routes handled by blueprints above
-                pass
-            elif path != '' and os.path.exists(os.path.join(frontend_build_path, path)):
+            # Skip API routes - they're handled by blueprints
+            if path.startswith('api/') or path.startswith('health'):
+                # Return 404 if this route is reached (blueprint should handle it)
+                return jsonify({'error': 'Not found'}), 404
+            
+            # Try to serve static file if it exists
+            file_path = os.path.join(frontend_build_path, path)
+            if path != '' and os.path.exists(file_path) and os.path.isfile(file_path):
                 return send_from_directory(frontend_build_path, path)
-            else:
-                return send_from_directory(frontend_build_path, 'index.html')
-    
-    # Health check endpoint
-    @app.route('/health', methods=['GET'])
-    def health_check():
-        return jsonify({'status': 'healthy', 'message': 'STAR Video Review API'}), 200
-    
-    # Root endpoint
-    @app.route('/', methods=['GET'])
-    def root():
-        return jsonify({
-            'message': 'STAR Video Review API',
-            'version': '2.0.0',
-            'phase': 'Phase 2 - AI Integration',
-            'endpoints': {
-                'auth': '/api/auth',
-                'videos': '/api/videos',
-                'annotations': '/api/annotations',
-                'practices': '/api/practices',
-                'ai_analysis': '/api/ai',
-                'reports': '/api/reports',
-                'health': '/health'
-            }
-        }), 200
+            
+            # Otherwise serve index.html for client-side routing
+            return send_from_directory(frontend_build_path, 'index.html')
     
     # Error handlers
     @app.errorhandler(404)
