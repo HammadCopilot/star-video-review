@@ -21,8 +21,26 @@ class Config:
     JWT_COOKIE_CSRF_PROTECT = False
     
     # Database
-    SQLALCHEMY_DATABASE_URI = os.getenv('DATABASE_URL', 'sqlite:///star_video_review.db')
+    # Default to SQLite for development, but support PostgreSQL for production
+    DATABASE_URL = os.getenv('DATABASE_URL', 'sqlite:///star_video_review.db')
+    
+    # Handle PostgreSQL SSL requirements for Neon
+    if DATABASE_URL.startswith('postgresql://'):
+        # Neon requires SSL connections
+        if 'sslmode=' not in DATABASE_URL:
+            DATABASE_URL += '?sslmode=require'
+    
+    SQLALCHEMY_DATABASE_URI = DATABASE_URL
     SQLALCHEMY_TRACK_MODIFICATIONS = False
+    
+    # PostgreSQL connection pool settings (only used when using PostgreSQL)
+    if DATABASE_URL.startswith('postgresql://'):
+        SQLALCHEMY_ENGINE_OPTIONS = {
+            'pool_size': 10,
+            'pool_recycle': 120,
+            'pool_pre_ping': True,
+            'max_overflow': 20
+        }
     
     # File Upload
     UPLOAD_FOLDER = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'uploads')
