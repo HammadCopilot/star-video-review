@@ -61,6 +61,7 @@ class Video(db.Model):
     category = db.Column(db.String(50))  # discrete_trial, pivotal_response, functional_routines
     is_analyzed = db.Column(db.Boolean, default=False)
     analysis_status = db.Column(db.String(20), default='pending')  # pending, processing, completed, failed
+    video_metadata = db.Column(db.Text)  # JSON string for storing additional metadata (original_url, progress, etc.)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     
@@ -85,6 +86,7 @@ class Video(db.Model):
             'category': self.category,
             'is_analyzed': self.is_analyzed,
             'analysis_status': self.analysis_status,
+            'video_metadata': self.video_metadata,
             'annotation_count': self.annotations.count(),
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'updated_at': self.updated_at.isoformat() if self.updated_at else None

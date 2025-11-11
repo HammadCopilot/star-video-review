@@ -76,13 +76,20 @@ def analyze_video(video_id):
                     print(f"⚠️ Could not extract duration: {e}")
                     duration = None
                 
-                # Update video to local file
+                # Update video to local file but keep original URL
+                original_url = video.url  # Preserve original URL
                 video.source_type = 'local'
                 video.file_path = filename
                 video.duration = duration
+                # Keep original URL in a new field or description
+                if original_url and not video.description:
+                    video.description = f"Downloaded from: {original_url}"
+                elif original_url and original_url not in video.description:
+                    video.description = f"{video.description}\nOriginal URL: {original_url}"
                 # Keep original URL for reference
-                video.metadata = json.dumps({'original_url': video.url, 'progress': 10, 'stage': 'Video downloaded, starting analysis...'})
-                video.url = None
+                video.video_metadata = json.dumps({'original_url': original_url, 'progress': 10, 'stage': 'Video downloaded, starting analysis...'})
+                # Don't clear the URL completely, keep it for reference
+                # video.url = None
                 db.session.commit()
                 
                 video_file = file_path
@@ -126,14 +133,14 @@ def analyze_video(video_id):
         # Update video status with initial progress
         video.analysis_status = 'processing'
         initial_metadata = {'progress': 5, 'stage': 'Initializing AI analysis...'}
-        video.metadata = json.dumps(initial_metadata)
+        video.video_metadata = json.dumps(initial_metadata)
         db.session.commit()
         print(f"🚀 Started analysis for video {video_id}, initial metadata: {initial_metadata}")
         
         # Run analysis
         try:
             # Update progress: Transcription starting
-            video.metadata = json.dumps({'progress': 15, 'stage': 'Transcribing audio with Whisper...'})
+            video.video_metadata = json.dumps({'progress': 15, 'stage': 'Transcribing audio with Whisper...'})
             db.session.commit()
             
             # Small delay to ensure progress is visible
@@ -150,13 +157,13 @@ def analyze_video(video_id):
             
             # Update progress after analysis
             if results.get('frames_extracted', 0) > 0:
-                video.metadata = json.dumps({'progress': 85, 'stage': f"Analyzed audio + {results['frames_extracted']} video frames"})
+                video.video_metadata = json.dumps({'progress': 85, 'stage': f"Analyzed audio + {results['frames_extracted']} video frames"})
             else:
-                video.metadata = json.dumps({'progress': 85, 'stage': 'Audio analysis complete'})
+                video.video_metadata = json.dumps({'progress': 85, 'stage': 'Audio analysis complete'})
             db.session.commit()
             
             # Update progress: Saving results
-            video.metadata = json.dumps({'progress': 90, 'stage': 'Generating annotations...'})
+            video.video_metadata = json.dumps({'progress': 90, 'stage': 'Generating annotations...'})
             db.session.commit()
             
             # Save transcript if available
@@ -276,7 +283,7 @@ def analyze_video(video_id):
             # Update video status
             video.is_analyzed = True
             video.analysis_status = 'completed'
-            video.metadata = json.dumps({'progress': 100, 'stage': 'Complete!'})
+            video.video_metadata = json.dumps({'progress': 100, 'stage': 'Complete!'})
             db.session.commit()
             
             # Create audit log
@@ -364,9 +371,9 @@ def get_analysis_status(video_id):
         
         # Parse progress from metadata
         progress_data = {'progress': 0, 'stage': 'Not started'}
-        if video.metadata:
+        if video.video_metadata:
             try:
-                metadata = json.loads(video.metadata)
+                metadata = json.loads(video.video_metadata)
                 if 'progress' in metadata:
                     progress_data = {
                         'progress': metadata.get('progress', 0),

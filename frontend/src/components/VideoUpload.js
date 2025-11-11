@@ -187,7 +187,7 @@ function VideoUpload() {
                 onChange={handleChange}
                 required
                 disabled={loading}
-                helperText="External video URL (YouTube, Vimeo, JWPlayer, etc.) - Note: AI analysis not available for URLs"
+                helperText="External video URL (YouTube, Vimeo, JWPlayer, etc.) - AI analysis available after download"
               />
             )}
 
