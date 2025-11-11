@@ -55,13 +55,14 @@ RUN pip install --no-cache-dir --timeout 600 \
     "Werkzeug>=3.1.0" \
     requests==2.31.0 \
     urllib3==2.1.0 \
-    python-dateutil==2.8.2
+    python-dateutil==2.8.2 \
+    psycopg2-binary==2.9.9
 
 # Stage 2: Image processing libraries
 RUN pip install --no-cache-dir --timeout 600 \
     Pillow==10.2.0 \
-    "numpy>=2,<2.3.0" \
-    opencv-python==4.12.0.88
+    "numpy>=1.24.0,<2.0.0" \
+    opencv-python==4.8.1.78
 
 # Stage 3: Video processing (requires ffmpeg)
 RUN pip install --no-cache-dir --timeout 600 \
