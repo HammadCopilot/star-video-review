@@ -26,15 +26,21 @@ class Config:
     
     # Handle PostgreSQL SSL requirements for Neon
     if DATABASE_URL.startswith('postgresql://'):
-        # Neon requires SSL connections
-        if 'sslmode=' not in DATABASE_URL:
-            DATABASE_URL += '?sslmode=require'
+        # Check if psycopg2 is available before using PostgreSQL
+        try:
+            import psycopg2
+            # Neon requires SSL connections
+            if 'sslmode=' not in DATABASE_URL:
+                DATABASE_URL += '?sslmode=require'
+        except ImportError:
+            print("WARNING: psycopg2 not available, falling back to SQLite")
+            DATABASE_URL = 'sqlite:///star_video_review.db'
     
     SQLALCHEMY_DATABASE_URI = DATABASE_URL
     SQLALCHEMY_TRACK_MODIFICATIONS = False
     
     # PostgreSQL connection pool settings (only used when using PostgreSQL)
-    if DATABASE_URL.startswith('postgresql://'):
+    if SQLALCHEMY_DATABASE_URI.startswith('postgresql://'):
         SQLALCHEMY_ENGINE_OPTIONS = {
             'pool_size': 10,
             'pool_recycle': 120,
