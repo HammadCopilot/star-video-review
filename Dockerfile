@@ -23,8 +23,8 @@ FROM python:3.10-slim-bookworm
 
 WORKDIR /app
 
-# Install system dependencies
-RUN apt-get update && apt-get install -y \
+# Install system dependencies and clean up in one layer to reduce size
+RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg \
     libgl1-mesa-glx \
     libglib2.0-0 \
@@ -32,7 +32,10 @@ RUN apt-get update && apt-get install -y \
     build-essential \
     libpq-dev \
     postgresql-client \
-    && apt-get clean && rm -rf /var/lib/apt/lists/*
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/* \
+    && rm -rf /tmp/* \
+    && rm -rf /var/tmp/*
 
 # Upgrade pip first
 RUN pip install --no-cache-dir --upgrade pip setuptools wheel
@@ -75,15 +78,20 @@ RUN pip install --no-cache-dir --timeout 600 \
 RUN pip install --no-cache-dir --timeout 600 \
     openai==1.59.6
 
-# Stage 5: PyTorch and Whisper (heavy downloads - install with retry)
-# PyTorch is ~900MB, so we install it separately with more time
-RUN pip install --no-cache-dir --timeout 1200 torch || \
-    (sleep 10 && pip install --no-cache-dir --timeout 1200 torch) || \
-    (sleep 10 && pip install --no-cache-dir --timeout 1200 torch)
+# Stage 5: PyTorch CPU-only (much smaller - ~200MB vs 900MB + CUDA libraries)
+# Using CPU-only version to save disk space and memory
+RUN pip install --no-cache-dir --timeout 1200 \
+    torch --index-url https://download.pytorch.org/whl/cpu
 
 # Stage 6: Whisper (depends on torch)
 RUN pip install --no-cache-dir --timeout 600 \
     openai-whisper==20240930
+
+# Final cleanup to free disk space
+RUN pip cache purge && \
+    rm -rf /tmp/* /var/tmp/* /root/.cache/* && \
+    find /usr/local/lib/python3.10/site-packages -type d -name "tests" -exec rm -rf {} + 2>/dev/null || true && \
+    find /usr/local/lib/python3.10/site-packages -type d -name "test" -exec rm -rf {} + 2>/dev/null || true
 
 # Copy backend application code
 COPY backend/ ./backend/

@@ -8,6 +8,8 @@ backend/venv/
 backend/env/
 backend/ENV/
 backend/.venv
+venv/
+env/
 *.egg-info/
 dist/
 build/
