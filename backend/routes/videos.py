@@ -114,59 +114,33 @@ def get_video(video_id):
 @videos_bp.route('', methods=['POST'])
 @jwt_required()
 def create_video():
-    """Upload video (local file) or add external URL"""
+    """Add external video URL (file uploads disabled to save disk space)"""
     try:
         user_id = int(get_jwt_identity())
         user = User.query.get(user_id)
         
-        # Check if it's a file upload or URL
+        # File uploads are now DISABLED to save disk space
+        # Videos are downloaded temporarily only for analysis, then deleted
         if 'file' in request.files:
-            # Local file upload
-            file = request.files['file']
-            
-            if file.filename == '':
-                return jsonify({'error': 'No file selected'}), 400
-            
-            if not allowed_file(file.filename):
-                return jsonify({'error': 'File type not allowed'}), 400
-            
-            # Secure filename and save
-            filename = secure_filename(file.filename)
-            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-            filename = f"{timestamp}_{filename}"
-            file_path = os.path.join(current_app.config['UPLOAD_FOLDER'], filename)
-            
-            file.save(file_path)
-            
-            # Get video duration
-            duration = get_video_duration(file_path)
-            
-            # Create video record
-            video = Video(
-                title=request.form.get('title', filename),
-                description=request.form.get('description'),
-                source_type='local',
-                file_path=filename,
-                uploader_id=user_id,
-                duration=duration,
-                category=request.form.get('category')
-            )
-            
-        else:
-            # External URL
-            data = request.get_json()
-            
-            if 'url' not in data:
-                return jsonify({'error': 'URL is required'}), 400
-            
-            video = Video(
-                title=data.get('title', 'Untitled Video'),
-                description=data.get('description'),
-                source_type='url',
-                url=data['url'],
-                uploader_id=user_id,
-                category=data.get('category')
-            )
+            return jsonify({
+                'error': 'File uploads are disabled. Please add videos by URL instead.',
+                'message': 'To save disk space, we only accept video URLs. Videos will be downloaded temporarily for analysis and then deleted.'
+            }), 400
+        
+        # External URL only
+        data = request.get_json()
+        
+        if 'url' not in data:
+            return jsonify({'error': 'URL is required'}), 400
+        
+        video = Video(
+            title=data.get('title', 'Untitled Video'),
+            description=data.get('description'),
+            source_type='url',
+            url=data['url'],
+            uploader_id=user_id,
+            category=data.get('category')
+        )
         
         db.session.add(video)
         db.session.commit()
@@ -267,7 +241,7 @@ def delete_video(video_id):
 @videos_bp.route('/<int:video_id>/stream', methods=['GET'])
 @jwt_required(optional=True)
 def stream_video(video_id):
-    """Stream video file with range support for seeking"""
+    """Stream video file or return URL for URL-based videos"""
     try:
         # Check authentication - either via header or query param
         from flask_jwt_extended import verify_jwt_in_request, get_jwt_identity
@@ -293,9 +267,15 @@ def stream_video(video_id):
         if not video:
             return jsonify({'error': 'Video not found'}), 404
         
+        # For URL videos, return the direct URL for client-side playback
         if video.source_type == 'url':
-            return jsonify({'error': 'External URL videos cannot be streamed', 'url': video.url}), 400
+            return jsonify({
+                'type': 'url',
+                'url': video.url,
+                'message': 'Use this URL to play the video directly in your player'
+            }), 200
         
+        # For local files (legacy support)
         file_path = os.path.join(current_app.config['UPLOAD_FOLDER'], video.file_path)
         
         if not os.path.exists(file_path):

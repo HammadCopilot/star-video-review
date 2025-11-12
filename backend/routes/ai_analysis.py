@@ -6,6 +6,7 @@ from datetime import datetime
 import os
 import json
 import requests
+import tempfile
 from urllib.parse import urlparse
 
 ai_bp = Blueprint('ai', __name__, url_prefix='/api/ai')
@@ -35,66 +36,63 @@ def analyze_video(video_id):
         use_enhanced = data.get('use_enhanced', current_app.config.get('USE_ENHANCED_AI', True))  # Default to True
         generate_annotations = data.get('generate_annotations', True)
         
-        # Handle URL videos - download them first
+        # Track if we need to clean up a temporary file
+        temp_video_file = None
+        
+        # Handle URL videos - download them TEMPORARILY
         if video.source_type == 'url':
             try:
-                # Generate filename
+                # Generate temporary filename
                 parsed_url = urlparse(video.url)
                 path_parts = parsed_url.path.split('.')
                 extension = path_parts[-1] if len(path_parts) > 1 and len(path_parts[-1]) <= 4 else 'mp4'
                 
-                # Clean title for filename
-                safe_title = "".join(c for c in video.title if c.isalnum() or c in (' ', '-', '_')).strip()
-                safe_title = safe_title.replace(' ', '_')[:50]
+                # Create temporary file
+                temp_file_fd, temp_video_file = tempfile.mkstemp(suffix=f'.{extension}')
+                os.close(temp_file_fd)  # Close file descriptor
                 
-                timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-                filename = f"{timestamp}_{safe_title}.{extension}"
-                file_path = os.path.join(current_app.config['UPLOAD_FOLDER'], filename)
-                
-                # Download video
-                print(f"Downloading video from URL: {video.url}")
-                response = requests.get(video.url, stream=True, timeout=60)
+                # Download video to temporary file
+                print(f"📥 Downloading video temporarily from URL: {video.url}")
+                response = requests.get(video.url, stream=True, timeout=120)
                 response.raise_for_status()
                 
-                with open(file_path, 'wb') as f:
+                with open(temp_video_file, 'wb') as f:
                     for chunk in response.iter_content(chunk_size=8192):
                         if chunk:
                             f.write(chunk)
                 
-                print(f"Downloaded video to: {file_path}")
+                print(f"✅ Downloaded video to temporary file: {temp_video_file}")
                 
-                # Extract video duration
-                try:
-                    import cv2
-                    cap = cv2.VideoCapture(file_path)
-                    fps = cap.get(cv2.CAP_PROP_FPS)
-                    frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-                    duration = frame_count / fps if fps > 0 else None
-                    cap.release()
-                    print(f"✅ Extracted duration: {duration}s")
-                except Exception as e:
-                    print(f"⚠️ Could not extract duration: {e}")
-                    duration = None
+                # Extract video duration if not already set
+                if not video.duration:
+                    try:
+                        import cv2
+                        cap = cv2.VideoCapture(temp_video_file)
+                        fps = cap.get(cv2.CAP_PROP_FPS)
+                        frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+                        duration = frame_count / fps if fps > 0 else None
+                        cap.release()
+                        if duration:
+                            video.duration = duration
+                            db.session.commit()
+                            print(f"✅ Extracted duration: {duration}s")
+                    except Exception as e:
+                        print(f"⚠️ Could not extract duration: {e}")
                 
-                # Update video to local file but keep original URL
-                original_url = video.url  # Preserve original URL
-                video.source_type = 'local'
-                video.file_path = filename
-                video.duration = duration
-                # Keep original URL in a new field or description
-                if original_url and not video.description:
-                    video.description = f"Downloaded from: {original_url}"
-                elif original_url and original_url not in video.description:
-                    video.description = f"{video.description}\nOriginal URL: {original_url}"
-                # Keep original URL for reference
-                video.video_metadata = json.dumps({'original_url': original_url, 'progress': 10, 'stage': 'Video downloaded, starting analysis...'})
-                # Don't clear the URL completely, keep it for reference
-                # video.url = None
+                # Update progress
+                video.video_metadata = json.dumps({'progress': 10, 'stage': 'Video downloaded temporarily, starting analysis...'})
                 db.session.commit()
                 
-                video_file = file_path
+                video_file = temp_video_file
                 
             except Exception as e:
+                # Clean up temp file on error
+                if temp_video_file and os.path.exists(temp_video_file):
+                    try:
+                        os.remove(temp_video_file)
+                        print(f"🗑️ Cleaned up temporary file after error")
+                    except:
+                        pass
                 return jsonify({
                     'error': 'Failed to download video from URL',
                     'message': str(e)
@@ -302,6 +300,14 @@ def analyze_video(video_id):
             db.session.add(audit)
             db.session.commit()
             
+            # Clean up temporary video file
+            if temp_video_file and os.path.exists(temp_video_file):
+                try:
+                    os.remove(temp_video_file)
+                    print(f"🗑️ Deleted temporary video file: {temp_video_file}")
+                except Exception as cleanup_error:
+                    print(f"⚠️ Failed to delete temporary file: {cleanup_error}")
+            
             return jsonify({
                 'message': 'Video analysis completed successfully',
                 'results': {
@@ -321,10 +327,28 @@ def analyze_video(video_id):
             # Update video status on error
             video.analysis_status = 'failed'
             db.session.commit()
+            
+            # Clean up temporary video file on error
+            if temp_video_file and os.path.exists(temp_video_file):
+                try:
+                    os.remove(temp_video_file)
+                    print(f"🗑️ Cleaned up temporary file after error")
+                except:
+                    pass
+            
             raise analysis_error
         
     except Exception as e:
         db.session.rollback()
+        
+        # Final cleanup attempt
+        if 'temp_video_file' in locals() and temp_video_file and os.path.exists(temp_video_file):
+            try:
+                os.remove(temp_video_file)
+                print(f"🗑️ Final cleanup of temporary file")
+            except:
+                pass
+        
         return jsonify({'error': str(e)}), 500
 
 
