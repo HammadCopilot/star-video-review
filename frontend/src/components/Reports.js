@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { useParams } from 'react-router-dom';
-import { getVideoReport } from '../services/api';
+import { useParams, useNavigate } from 'react-router-dom';
+import { getVideoReport, getVideos } from '../services/api';
 import {
   Container,
   Paper,
@@ -9,6 +9,7 @@ import {
   Grid,
   Card,
   CardContent,
+  CardActions,
   CircularProgress,
   Alert,
   Chip,
@@ -20,12 +21,14 @@ import {
   Menu,
   MenuItem,
 } from '@mui/material';
-import { Assessment, CheckCircle, Warning, TrendingUp, Download, FileDownload } from '@mui/icons-material';
+import { Assessment, CheckCircle, Warning, TrendingUp, Download, FileDownload, Visibility } from '@mui/icons-material';
 import Layout from './Layout';
 
 function Reports() {
   const { id } = useParams();
+  const navigate = useNavigate();
   const [report, setReport] = useState(null);
+  const [videos, setVideos] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [exportAnchor, setExportAnchor] = useState(null);
@@ -33,6 +36,8 @@ function Reports() {
   useEffect(() => {
     if (id) {
       loadReport();
+    } else {
+      loadVideos();
     }
   }, [id]);
 
@@ -44,6 +49,19 @@ function Reports() {
       setError('');
     } catch (err) {
       setError('Failed to load report');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const loadVideos = async () => {
+    try {
+      setLoading(true);
+      const response = await getVideos();
+      setVideos(response.data.videos || []);
+      setError('');
+    } catch (err) {
+      setError('Failed to load videos');
     } finally {
       setLoading(false);
     }
@@ -85,6 +103,95 @@ function Reports() {
     setExportAnchor(null);
   };
 
+  // If no ID, show list of videos
+  if (!id) {
+    return (
+      <Layout>
+        <Container maxWidth="lg" sx={{ mt: 4, mb: 4 }}>
+          <Box sx={{ mb: 3 }}>
+            <Typography variant="h4" gutterBottom sx={{ display: 'flex', alignItems: 'center' }}>
+              <Assessment sx={{ mr: 2 }} />
+              Video Reports
+            </Typography>
+            <Typography variant="body1" color="text.secondary">
+              Select a video to view its report
+            </Typography>
+          </Box>
+
+          {error && (
+            <Alert severity="error" sx={{ mb: 2 }}>
+              {error}
+            </Alert>
+          )}
+
+          {loading ? (
+            <Box sx={{ display: 'flex', justifyContent: 'center', mt: 4 }}>
+              <CircularProgress />
+            </Box>
+          ) : videos.length === 0 ? (
+            <Alert severity="info" sx={{ mt: 4 }}>
+              No videos available. Upload a video to generate reports.
+            </Alert>
+          ) : (
+            <Grid container spacing={3}>
+              {videos.map((video) => (
+                <Grid item xs={12} sm={6} md={4} key={video.id}>
+                  <Card>
+                    <CardContent>
+                      <Typography variant="h6" component="div" gutterBottom>
+                        {video.title}
+                      </Typography>
+                      {video.category && (
+                        <Chip
+                          label={video.category.replace('_', ' ')}
+                          size="small"
+                          sx={{ mb: 1 }}
+                        />
+                      )}
+                      <Box sx={{ mt: 2, display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+                        {video.annotation_count > 0 && (
+                          <Chip
+                            label={`${video.annotation_count} annotations`}
+                            size="small"
+                            variant="outlined"
+                          />
+                        )}
+                        {video.is_analyzed && (
+                          <Chip
+                            label="AI Analyzed"
+                            size="small"
+                            color="success"
+                            variant="outlined"
+                          />
+                        )}
+                      </Box>
+                    </CardContent>
+                    <CardActions>
+                      <Button
+                        size="small"
+                        startIcon={<Visibility />}
+                        onClick={() => navigate(`/reports/${video.id}`)}
+                      >
+                        View Report
+                      </Button>
+                      <Button
+                        size="small"
+                        onClick={() => navigate(`/video/${video.id}`)}
+                      >
+                        View Video
+                      </Button>
+                    </CardActions>
+                  </Card>
+                </Grid>
+              ))}
+            </Grid>
+          )}
+        </Container>
+      </Layout>
+    );
+  }
+
+  // If ID exists, show report for that video
   if (loading) {
     return (
       <Layout>
@@ -104,6 +211,11 @@ function Reports() {
           <Alert severity="error" sx={{ mt: 4 }}>
             {error || 'No report available'}
           </Alert>
+          <Box sx={{ mt: 2 }}>
+            <Button variant="outlined" onClick={() => navigate('/reports')}>
+              Back to Reports
+            </Button>
+          </Box>
         </Container>
       </Layout>
     );
@@ -306,10 +418,13 @@ function Reports() {
           </Paper>
         )}
 
-        <Box sx={{ mt: 3 }}>
+        <Box sx={{ mt: 3, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <Typography variant="caption" color="text.secondary">
             Report generated: {new Date(report.generated_at).toLocaleString()}
           </Typography>
+          <Button variant="outlined" onClick={() => navigate('/reports')}>
+            Back to Reports List
+          </Button>
         </Box>
       </Container>
     </Layout>
