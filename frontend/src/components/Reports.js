@@ -58,7 +58,9 @@ function Reports() {
     try {
       setLoading(true);
       const response = await getVideos();
-      setVideos(response.data.videos || []);
+      // Filter to only show videos that have been analyzed (have reports available)
+      const analyzedVideos = (response.data.videos || []).filter(video => video.is_analyzed === true);
+      setVideos(analyzedVideos);
       setError('');
     } catch (err) {
       setError('Failed to load videos');
@@ -130,7 +132,7 @@ function Reports() {
             </Box>
           ) : videos.length === 0 ? (
             <Alert severity="info" sx={{ mt: 4 }}>
-              No videos available. Upload a video to generate reports.
+              No analyzed videos available. Videos need to be analyzed before reports can be generated.
             </Alert>
           ) : (
             <Grid container spacing={3}>
